@@ -61,25 +61,44 @@ module "alb" {
   default_protocol = try(var.alb.default_protocol, "HTTP")
   listeners = merge(
     {
-      http-https-redirect = {
-        port     = 80
-        protocol = "HTTP"
-
-        redirect = {
-          port        = "443"
-          protocol    = "HTTPS"
-          status_code = "HTTP_301"
-        }
-      }
-
       https = merge(
         {
           port            = 443
           protocol        = "HTTPS"
           ssl_policy      = try(var.alb.https_listener_ssl_policy, "ELBSecurityPolicy-TLS13-1-2-Res-2021-06")
           certificate_arn = var.create_certificate ? module.acm.acm_certificate_arn : var.certificate_arn
+          fixed_response = {
+            content_type = "text/plain"
+            status_code  = 403
+            message_body = "Sorry"
+          }
+          rules = {
+            events = {
+              priority = 1
+              actions = [{
+                type             = "forward"
+                target_group_key = "atlantis"
+              }]
+              conditions = [{
+                path_pattern = {
+                  values = ["/events"]
+                }
+              }]
+            }
+            standard = {
+              priority = 2
+              actions = [{
+                type             = "forward"
+                target_group_key = "atlantis"
+              }]
+              conditions = [{
+                source_ip = {
+                  values = var.alb_trusted_ips
+                }
+              }]
+            }
+          }
         },
-        var.alb_https_default_action,
         lookup(var.alb, "https_listener", {})
       )
     },
@@ -201,7 +220,7 @@ module "ecs_cluster" {
   cluster_configuration = try(var.cluster.configuration, {})
   cluster_settings = try(var.cluster.settings, {
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
     }
   )
 
@@ -280,7 +299,7 @@ module "ecs_service" {
     {
       atlantis = {
         command                 = try(var.atlantis.command, [])
-        cpu                     = try(var.atlantis.cpu, 1024)
+        cpu                     = try(var.atlantis.cpu, 256)
         dependencies            = try(var.atlantis.dependencies, []) # depends_on is a reserved word
         disable_networking      = try(var.atlantis.disable_networking, null)
         dns_search_domains      = try(var.atlantis.dns_search_domains, [])
@@ -313,7 +332,7 @@ module "ecs_service" {
         links                  = try(var.atlantis.links, [])
         linux_parameters       = try(var.atlantis.linux_parameters, {})
         log_configuration      = lookup(var.atlantis, "log_configuration", {})
-        memory                 = try(var.atlantis.memory, 2048)
+        memory                 = try(var.atlantis.memory, 512)
         memory_reservation     = try(var.atlantis.memory_reservation, null)
         mount_points           = local.mount_points
         name                   = "atlantis"
@@ -349,12 +368,12 @@ module "ecs_service" {
     lookup(var.service, "container_definitions", {})
   )
   container_definition_defaults         = lookup(var.service, "container_definition_defaults", {})
-  cpu                                   = try(var.service.cpu, 1024)
+  cpu                                   = try(var.service.cpu, 256)
   ephemeral_storage                     = try(var.service.ephemeral_storage, {})
   family                                = try(var.service.family, null)
   inference_accelerator                 = try(var.service.inference_accelerator, {})
   ipc_mode                              = try(var.service.ipc_mode, null)
-  memory                                = try(var.service.memory, 2048)
+  memory                                = try(var.service.memory, 512)
   network_mode                          = try(var.service.network_mode, "awsvpc")
   pid_mode                              = try(var.service.pid_mode, null)
   task_definition_placement_constraints = try(var.service.task_definition_placement_constraints, {})
@@ -362,7 +381,7 @@ module "ecs_service" {
   requires_compatibilities              = try(var.service.requires_compatibilities, ["FARGATE"])
   runtime_platform = try(var.service.runtime_platform, {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = "ARM64"
   })
   skip_destroy = try(var.service.skip_destroy, null)
   volume = { for k, v in merge(
@@ -437,17 +456,19 @@ module "ecs_service" {
         from_port                = local.atlantis_port
         to_port                  = local.atlantis_port
         protocol                 = "tcp"
-        source_security_group_id = var.create_alb ? module.alb.security_group_id : var.alb_security_group_id
+        source_security_group_id = var.alb_security_group_id
       }
     },
     lookup(var.service, "security_group_rules", {
       egress = {
-        type        = "egress"
-        from_port   = 0
-        to_port     = 0
-        protocol    = "-1"
-        cidr_blocks = ["0.0.0.0/0"]
+        type             = "egress"
+        from_port        = 0
+        to_port          = 0
+        protocol         = "-1"
+        cidr_blocks      = ["0.0.0.0/0"]
+        ipv6_cidr_blocks = ["::/0"]
       }
+
     })
   )
   security_group_tags = try(var.service.security_group_tags, {})

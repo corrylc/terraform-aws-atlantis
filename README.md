@@ -1,5 +1,38 @@
 # Atlantis on AWS Fargate Terraform Module
 
+# Fork Changes:
+* Must pass a Security Group in for attaching to the ALB
+  * Must allow ingress to 443 from your trusted IPs and all GitHub webhook IPs
+  * Must allow egress to all IPs
+  * Ideally all ingress and egress allows IPv4 and IPv6, but that is up to you
+* Doesn't respond on port 80 or forward to 443 (use HSTS instead)
+* Must pass a list of trusted IPs to grant access to Atlantis
+  * The list of trusted IPs can't be longer than ALB's allowance for a rule (five)
+* Switches to ARM64 for lower cost
+* Enables container egress on IPv6
+* Reduces CPU/Memory defaults to dramatically lower cost
+* Disables container insights to dramatically lower cost
+
+Recommended settings for use of this modified module:
+
+```hcl
+module "atlantis" {
+  # All the other required config
+  
+  # Assumes you have created `aws_security_group.alb.id` per above bullets
+  alb_security_group_id = aws_security_group.alb.id
+
+  alb = {
+    create_security_group = false
+    security_groups       = [
+      aws_security_group.alb.id
+    ]
+  }
+}
+```
+
+# Back to original README
+
 [![SWUbanner](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md)
 
 [Atlantis](https://www.runatlantis.io/) is tool which provides unified workflow for collaborating on Terraform through GitHub, GitLab and Bitbucket Cloud.

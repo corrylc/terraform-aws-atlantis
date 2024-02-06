@@ -57,9 +57,13 @@ variable "alb_target_group_arn" {
 }
 
 variable "alb_security_group_id" {
-  description = "ID of an existing security group that will be used by ALB. Required if `create_alb` is `false`"
+  description = "ID of an existing security group that will be used by ALB. Required"
   type        = string
-  default     = ""
+}
+
+variable "alb_trusted_ips" {
+  description = "Trusted IPs to allow access to Atlantis"
+  type = list(string)
 }
 
 variable "alb" {
